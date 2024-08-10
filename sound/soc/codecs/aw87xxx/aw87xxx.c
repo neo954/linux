@@ -1308,7 +1308,7 @@ static int aw87xxx_i2c_probe(struct i2c_client *client)
 {
 	struct device_node *dev_node = client->dev.of_node;
 	const struct smi_node *node;
-        struct acpi_device *adev = ACPI_COMPANION(&client->dev);
+	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
 	struct aw87xxx *aw87xxx = NULL;
 	struct gpio_desc *gpiod = NULL;
 	struct i2c_board_info board_info = {};
@@ -1341,17 +1341,17 @@ static int aw87xxx_i2c_probe(struct i2c_client *client)
 	/* aw87xxx Get ACPI GPIO */
 
 	if (g_aw87xxx_dev_cnt == 0){
-	        ret = devm_acpi_dev_add_driver_gpios(aw87xxx->dev, reset_acpi_gpios);
-        	if(ret){
-                	AW_DEV_LOGE(aw87xxx->dev, "Unable to add GPIO mapping table");
-                	goto exit_device_init_failed;
-        	}
+		ret = devm_acpi_dev_add_driver_gpios(aw87xxx->dev, reset_acpi_gpios);
+		if(ret){
+			AW_DEV_LOGE(aw87xxx->dev, "Unable to add GPIO mapping table");
+			goto exit_device_init_failed;
+		}
 
-	        gpiod = devm_gpiod_get(aw87xxx->dev, "reset", GPIOD_OUT_LOW);
+		gpiod = devm_gpiod_get(aw87xxx->dev, "reset", GPIOD_OUT_LOW);
 		if (gpiod == NULL){
-	                AW_DEV_LOGE(aw87xxx->dev, "Gpiod returned NULL failing gracefully.");
-	                goto exit_device_init_failed;
-	        }
+			AW_DEV_LOGE(aw87xxx->dev, "Gpiod returned NULL failing gracefully.");
+			goto exit_device_init_failed;
+		}
 
 		if (IS_ERR(gpiod)){
 			AW_DEV_LOGE(aw87xxx->dev, "Get gpiod failed.");
@@ -1359,14 +1359,14 @@ static int aw87xxx_i2c_probe(struct i2c_client *client)
 		}
 
 		aw87xxx->aw_dev.rst_gpio = desc_to_gpio(gpiod);
-	        aw87xxx->aw_dev.hwen_status = AW_DEV_HWEN_OFF;
-	        AW_DEV_LOGI(aw87xxx->dev, "reset gpio[%x] parse succeed", aw87xxx->aw_dev.rst_gpio);
+		aw87xxx->aw_dev.hwen_status = AW_DEV_HWEN_OFF;
+		AW_DEV_LOGI(aw87xxx->dev, "reset gpio[%x] parse succeed", aw87xxx->aw_dev.rst_gpio);
 
 		if (!gpio_is_valid(aw87xxx->aw_dev.rst_gpio)) {
 			/*Disabling RESET GPIO*/
-	        	AW_DEV_LOGI(aw87xxx->dev, "no reset gpio provided, hardware reset unavailable");
-	        	aw87xxx->aw_dev.rst_gpio = AW_NO_RESET_GPIO;
-        		aw87xxx->aw_dev.hwen_status = AW_DEV_HWEN_INVALID;
+			AW_DEV_LOGI(aw87xxx->dev, "no reset gpio provided, hardware reset unavailable");
+			aw87xxx->aw_dev.rst_gpio = AW_NO_RESET_GPIO;
+			aw87xxx->aw_dev.hwen_status = AW_DEV_HWEN_INVALID;
 		}
 
 	}
@@ -1414,8 +1414,8 @@ static int aw87xxx_i2c_probe(struct i2c_client *client)
 
 	/* Attempt to add other I2C AMPs */
 	if ((acpi_dev_count > 1) && (g_aw87xxx_dev_cnt == 1)){
-                /* power on the chip */
-                aw87xxx_dev_hw_pwr_ctrl(&aw87xxx->aw_dev, true);
+		/* power on the chip */
+		aw87xxx_dev_hw_pwr_ctrl(&aw87xxx->aw_dev, true);
 
 		node = device_get_match_data(aw87xxx->dev);
 		memset(&board_info, 0, sizeof(board_info));
@@ -1474,26 +1474,26 @@ static void aw87xxx_i2c_shutdown(struct i2c_client *client)
 
 static int aw87xxx_runtime_suspend(struct device *dev)
 {
-        struct aw87xxx *aw87xxx = dev_get_drvdata(dev);
+	struct aw87xxx *aw87xxx = dev_get_drvdata(dev);
 
-        AW_DEV_LOGI(aw87xxx->dev, "Suspending...");
+	AW_DEV_LOGI(aw87xxx->dev, "Suspending...");
 
-        // soft and hw power off
-        aw87xxx_update_profile(aw87xxx, aw87xxx->prof_off_name);
+	// soft and hw power off
+	aw87xxx_update_profile(aw87xxx, aw87xxx->prof_off_name);
 
-        return 0;
+	return 0;
 }
 
 static int aw87xxx_runtime_resume(struct device *dev)
 {
-        struct list_head *pos = NULL;
+	struct list_head *pos = NULL;
 	struct aw87xxx *aw87xxx = dev_get_drvdata(dev);
 
 	// Power on PA
 	if (aw87xxx->dev_index == 1)
 		aw87xxx_dev_hw_pwr_ctrl(&aw87xxx->aw_dev, true);
 
-        // Set profile to Music
+	// Set profile to Music
 	list_for_each_prev(pos, &g_aw87xxx_list) {
 		aw87xxx = list_entry(pos, struct aw87xxx, list);
 		AW_DEV_LOGI(aw87xxx->dev, "Resuming...");
@@ -1502,15 +1502,15 @@ static int aw87xxx_runtime_resume(struct device *dev)
 		aw87xxx_power_on(aw87xxx, AW87XXX_PROF_MUSIC);
 		mutex_unlock(&aw87xxx->reg_lock);
 
-        }
+	}
 
-        return 0;
+	return 0;
 }
 
 static SIMPLE_DEV_PM_OPS(aw87xxx_pm_ops, aw87xxx_runtime_suspend, aw87xxx_runtime_resume);
 
 static const struct acpi_device_id aw87xxx_acpi_match[] = {
-        { "AWDZ8830", 0 },
+	{ "AWDZ8830", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, aw87xxx_acpi_match);
