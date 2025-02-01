@@ -344,7 +344,7 @@ void set_ally_mcu_hack_available(bool enabled)
 {
 	ally_mcu_usb_plug = enabled;
 }
-EXPORT_SYMBOL_NS_GPL(set_ally_mcu_hack_available, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(set_ally_mcu_hack_available, ASUS_WMI);
 
 #if IS_ENABLED(CONFIG_ASUS_WMI_DEPRECATED_ATTRS)
 static void asus_wmi_show_deprecated(void)
@@ -405,7 +405,7 @@ int asus_wmi_evaluate_method(u32 method_id, u32 arg0, u32 arg1, u32 *retval)
 {
 	return asus_wmi_evaluate_method3(method_id, arg0, arg1, 0, retval);
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_evaluate_method, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_evaluate_method, ASUS_WMI);
 
 static int asus_wmi_evaluate_method5(u32 method_id,
 		u32 arg0, u32 arg1, u32 arg2, u32 arg3, u32 arg4, u32 *retval)
@@ -591,7 +591,7 @@ int asus_wmi_get_devstate_dsts(u32 dev_id, u32 *retval)
 
 	return 0;
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_get_devstate_dsts, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_get_devstate_dsts, ASUS_WMI);
 
 /**
  * asus_wmi_set_devstate() - Set the WMI function state.
@@ -612,7 +612,7 @@ int asus_wmi_set_devstate(u32 dev_id, u32 ctrl_param, u32 *retval)
 	return asus_wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, dev_id,
 					ctrl_param, retval);
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_set_devstate, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_set_devstate, ASUS_WMI);
 
 /* Helper for special devices with magic return codes */
 static int asus_wmi_get_devstate_bits(struct asus_wmi *asus,
@@ -3114,7 +3114,7 @@ int asus_wmi_register_armoury_interface(struct asus_wmi_armoury_interface *armou
 
 	return 0;
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_register_armoury_interface, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_register_armoury_interface, ASUS_WMI);
 
 void asus_wmi_unregister_armoury_interface(struct asus_wmi_armoury_interface *armoury_interface)
 {
@@ -3123,7 +3123,7 @@ void asus_wmi_unregister_armoury_interface(struct asus_wmi_armoury_interface *ar
 	armoury_interface->wmi_driver = NULL;
 	armoury_interface->fan_curves_enabled_attr = NULL;
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_unregister_armoury_interface, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_unregister_armoury_interface, ASUS_WMI);
 
 bool asus_wmi_get_fan_curves_enabled(uint fan)
 {
@@ -3135,7 +3135,7 @@ bool asus_wmi_get_fan_curves_enabled(uint fan)
 
 	return wmi_armoury_interface.wmi_driver->custom_fan_curves[fan].enabled;
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_get_fan_curves_enabled, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_get_fan_curves_enabled, ASUS_WMI);
 
 /* Notification helpers */
 void notify_fan_curves_changed(void)
@@ -3157,7 +3157,7 @@ void notify_fan_curves_changed(void)
 			wmi_armoury_interface.ppt_enabled_attr->attr.name);
 	}
 }
-EXPORT_SYMBOL_NS_GPL(notify_fan_curves_changed, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(notify_fan_curves_changed, ASUS_WMI);
 
 static umode_t asus_hwmon_sysfs_is_visible(struct kobject *kobj,
 					  struct attribute *attr, int idx)
@@ -3588,7 +3588,7 @@ int asus_wmi_set_fan_curves_enabled(struct asus_wmi *asus, bool enabled)
 
 	return 0;
 }
-EXPORT_SYMBOL_NS_GPL(asus_wmi_set_fan_curves_enabled, "ASUS_WMI");
+EXPORT_SYMBOL_NS_GPL(asus_wmi_set_fan_curves_enabled, ASUS_WMI);
 
 static ssize_t fan_curve_enable_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
