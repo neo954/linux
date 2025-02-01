@@ -1343,5 +1343,5 @@ static struct hid_driver asus_driver = {
 };
 module_hid_driver(asus_driver);
 
-MODULE_IMPORT_NS("ASUS_WMI");
+MODULE_IMPORT_NS(ASUS_WMI);
 MODULE_LICENSE("GPL");
