@@ -238,6 +238,8 @@ struct fan_curve_data {
 	u8 percents[FAN_CURVE_POINTS];
 };
 
+static struct asus_wmi_armoury_interface wmi_armoury_interface;
+
 struct asus_wmi {
 	int dsts_id;
 	int spec;
@@ -424,10 +426,10 @@ static int asus_wmi_evaluate_method5(u32 method_id,
 	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id,
 				     &input, &output);
 
-	pr_debug("%s called (0x%08x) with args: 0x%08x, 0x%08x, 0x%08x, 0x%08x, 0x%08x\n",
+	pr_warn("%s called (0x%08x) with args: 0x%08x, 0x%08x, 0x%08x, 0x%08x, 0x%08x\n",
 		__func__, method_id, arg0, arg1, arg2, arg3, arg4);
 	if (ACPI_FAILURE(status)) {
-		pr_debug("%s, (0x%08x), arg 0x%08x failed: %d\n",
+		pr_warn("%s, (0x%08x), arg 0x%08x failed: %d\n",
 			__func__, method_id, arg0, -EIO);
 		return -EIO;
 	}
@@ -436,14 +438,14 @@ static int asus_wmi_evaluate_method5(u32 method_id,
 	if (obj && obj->type == ACPI_TYPE_INTEGER)
 		tmp = (u32) obj->integer.value;
 
-	pr_debug("Result: %x\n", tmp);
+	pr_warn("Result: %x\n", tmp);
 	if (retval)
 		*retval = tmp;
 
 	kfree(obj);
 
 	if (tmp == ASUS_WMI_UNSUPPORTED_METHOD) {
-		pr_debug("%s, (0x%08x), arg 0x%08x failed: %d\n",
+		pr_warn("%s, (0x%08x), arg 0x%08x failed: %d\n",
 			__func__, method_id, arg0, -ENODEV);
 		return -ENODEV;
 	}
@@ -3091,6 +3093,72 @@ static struct attribute *hwmon_attributes[] = {
 	NULL
 };
 
+int asus_wmi_register_armoury_interface(struct asus_wmi_armoury_interface *armoury_interface)
+{
+	if (!armoury_interface->armoury_fw_attr_dev)
+		return -EINVAL;
+
+	if (!armoury_interface->ppt_enabled_attr)
+		return -EINVAL;
+
+	if (!wmi_armoury_interface.wmi_driver)
+		return -EINVAL;
+
+	if (!wmi_armoury_interface.fan_curves_enabled_attr)
+		return -EINVAL;
+
+	wmi_armoury_interface.armoury_fw_attr_dev = armoury_interface->armoury_fw_attr_dev;
+	wmi_armoury_interface.ppt_enabled_attr = armoury_interface->ppt_enabled_attr;
+	armoury_interface->wmi_driver = wmi_armoury_interface.wmi_driver;
+	armoury_interface->fan_curves_enabled_attr = wmi_armoury_interface.fan_curves_enabled_attr;
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(asus_wmi_register_armoury_interface, "ASUS_WMI");
+
+void asus_wmi_unregister_armoury_interface(struct asus_wmi_armoury_interface *armoury_interface)
+{
+	wmi_armoury_interface.armoury_fw_attr_dev = NULL;
+	wmi_armoury_interface.ppt_enabled_attr = NULL;
+	armoury_interface->wmi_driver = NULL;
+	armoury_interface->fan_curves_enabled_attr = NULL;
+}
+EXPORT_SYMBOL_NS_GPL(asus_wmi_unregister_armoury_interface, "ASUS_WMI");
+
+bool asus_wmi_get_fan_curves_enabled(uint fan)
+{
+	if (!wmi_armoury_interface.wmi_driver)
+		pr_debug("%s: wmi_driver is NULL\n", __func__);
+
+	if (!wmi_armoury_interface.wmi_driver)
+		return false;
+
+	return wmi_armoury_interface.wmi_driver->custom_fan_curves[fan].enabled;
+}
+EXPORT_SYMBOL_NS_GPL(asus_wmi_get_fan_curves_enabled, "ASUS_WMI");
+
+/* Notification helpers */
+void notify_fan_curves_changed(void)
+{
+	struct device *dev;
+	if (!interface_is_ready(&wmi_armoury_interface))
+		return;
+
+	/* Notify both attributes */
+	if (wmi_armoury_interface.fan_curves_enabled_attr) {
+		dev = &wmi_armoury_interface.wmi_driver->platform_device->dev;
+		sysfs_notify(&dev->kobj, NULL,
+			wmi_armoury_interface.fan_curves_enabled_attr->attr.name);
+	}
+
+	if (wmi_armoury_interface.ppt_enabled_attr) {
+		dev = wmi_armoury_interface.armoury_fw_attr_dev;
+		sysfs_notify(&dev->kobj, NULL,
+			wmi_armoury_interface.ppt_enabled_attr->attr.name);
+	}
+}
+EXPORT_SYMBOL_NS_GPL(notify_fan_curves_changed, "ASUS_WMI");
+
 static umode_t asus_hwmon_sysfs_is_visible(struct kobject *kobj,
 					  struct attribute *attr, int idx)
 {
@@ -3476,6 +3544,52 @@ static ssize_t fan_curve_store(struct device *dev,
 	return count;
 }
 
+int asus_wmi_set_fan_curves_enabled(struct asus_wmi *asus, bool enabled)
+{
+	int err;
+
+	/* Set enabled state for all available fan curves */
+	if (asus->cpu_fan_curve_available)
+		asus->custom_fan_curves[FAN_CURVE_DEV_CPU].enabled = enabled;
+	if (asus->gpu_fan_curve_available)
+		asus->custom_fan_curves[FAN_CURVE_DEV_GPU].enabled = enabled;
+	if (asus->mid_fan_curve_available)
+		asus->custom_fan_curves[FAN_CURVE_DEV_MID].enabled = enabled;
+
+	if (enabled) {
+		if (asus->cpu_fan_curve_available) {
+			err = fan_curve_write(asus, &asus->custom_fan_curves[FAN_CURVE_DEV_CPU]);
+			if (err)
+				return err;
+		}
+		if (asus->gpu_fan_curve_available) {
+			err = fan_curve_write(asus, &asus->custom_fan_curves[FAN_CURVE_DEV_GPU]);
+			if (err)
+				return err;
+		}
+		if (asus->mid_fan_curve_available) {
+			/*
+			 * Some laptops error with ASUS_WMI_UNSUPPORTED_METHOD
+			 * even though it works due to bugged bios acpi
+			 */
+			fan_curve_write(asus, &asus->custom_fan_curves[FAN_CURVE_DEV_MID]);
+		}
+	} else {
+		if (asus->throttle_thermal_policy_dev) {
+			err = throttle_thermal_policy_write(asus);
+			if (err)
+				return err;
+		} else {
+			err = asus_fan_set_auto(asus);
+			if (err)
+				return err;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(asus_wmi_set_fan_curves_enabled, "ASUS_WMI");
+
 static ssize_t fan_curve_enable_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
@@ -3507,10 +3621,10 @@ static ssize_t fan_curve_enable_store(struct device *dev,
 
 	switch (value) {
 	case 1:
-		data->enabled = true;
+		err = asus_wmi_set_fan_curves_enabled(asus, true);
 		break;
 	case 2:
-		data->enabled = false;
+		err = asus_wmi_set_fan_curves_enabled(asus, false);
 		break;
 	/*
 	 * Auto + reset the fan curve data to defaults. Make it an explicit
@@ -3520,40 +3634,17 @@ static ssize_t fan_curve_enable_store(struct device *dev,
 		err = fan_curve_get_factory_default(asus, data->device_id);
 		if (err)
 			return err;
-		data->enabled = false;
+		err = asus_wmi_set_fan_curves_enabled(asus, false);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	if (data->enabled) {
-		err = fan_curve_write(asus, data);
-		if (err)
-			return err;
-	} else {
-		/*
-		 * For machines with throttle this is the only way to reset fans
-		 * to default mode of operation (does not erase curve data).
-		 */
-		if (asus->throttle_thermal_policy_dev) {
-			err = throttle_thermal_policy_write(asus);
-			if (err)
-				return err;
-		/* Similar is true for laptops with this fan */
-		} else if (asus->fan_type == FAN_TYPE_SPEC83) {
-			err = asus_fan_set_auto(asus);
-			if (err)
-				return err;
-		} else {
-			/* Safeguard against fautly ACPI tables */
-			err = fan_curve_get_factory_default(asus, data->device_id);
-			if (err)
-				return err;
-			err = fan_curve_write(asus, data);
-			if (err)
-				return err;
-		}
-	}
+	if (err)
+		return err;
+
+	notify_fan_curves_changed();
+
 	return count;
 }
 
@@ -3798,6 +3889,9 @@ static int asus_wmi_custom_fan_curve_init(struct asus_wmi *asus)
 			"Could not register asus_custom_fan_curve device\n");
 		return PTR_ERR(hwmon);
 	}
+
+	wmi_armoury_interface.wmi_driver = asus;
+	wmi_armoury_interface.fan_curves_enabled_attr = &dev_attr_pwm1_enable;
 
 	return 0;
 }

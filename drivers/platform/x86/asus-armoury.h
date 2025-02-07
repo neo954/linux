@@ -14,6 +14,41 @@
 
 #define DRIVER_NAME "asus-armoury"
 
+/* Tunables provided by ASUS for gaming laptops */
+struct cpu_cores {
+	u32 cur_perf_cores;
+	u32 min_perf_cores;
+	u32 max_perf_cores;
+	u32 cur_power_cores;
+	u32 min_power_cores;
+	u32 max_power_cores;
+};
+
+struct rog_tunables {
+	const struct power_data *tuning_limits;
+	u32 ppt_pl1_spl; // cpu
+	u32 ppt_pl2_sppt; // cpu
+	u32 ppt_pl3_fppt; // cpu
+	u32 ppt_apu_sppt; // plat
+	u32 ppt_platform_sppt; // plat
+
+	u32 nv_dynamic_boost;
+	u32 nv_temp_target;
+	u32 nv_tgp;
+};
+
+struct asus_armoury_priv {
+	struct device *fw_attr_dev;
+	struct kset *fw_attr_kset;
+
+	struct cpu_cores *cpu_cores;
+	struct rog_tunables *rog_tunables;
+	u32 mini_led_dev_id;
+	u32 gpu_mux_dev_id;
+
+	struct mutex mutex;
+};
+
 static ssize_t attr_uint_store(struct kobject *kobj, struct kobj_attribute *attr,
 			      const char *buf, size_t count, u32 min, u32 max,
 			      u32 *store_value, u32 wmi_dev);

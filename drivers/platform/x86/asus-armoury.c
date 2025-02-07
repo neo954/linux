@@ -9,6 +9,7 @@
  * Copyright(C) 2024 Luke Jones <luke@ljones.dev>
  */
 
+#include "asus-wmi.h"
 #include "linux/cleanup.h"
 #include <linux/bitfield.h>
 #include <linux/device.h>
@@ -59,40 +60,7 @@ enum cpu_core_value {
 #define CPU_PERF_CORE_COUNT_MIN 4
 #define CPU_POWR_CORE_COUNT_MIN 0
 
-/* Tunables provided by ASUS for gaming laptops */
-struct cpu_cores {
-	u32 cur_perf_cores;
-	u32 min_perf_cores;
-	u32 max_perf_cores;
-	u32 cur_power_cores;
-	u32 min_power_cores;
-	u32 max_power_cores;
-};
-
-struct rog_tunables {
-	const struct power_data *tuning_limits;
-	u32 ppt_pl1_spl; // cpu
-	u32 ppt_pl2_sppt; // cpu
-	u32 ppt_pl3_fppt; // cpu
-	u32 ppt_apu_sppt; // plat
-	u32 ppt_platform_sppt; // plat
-
-	u32 nv_dynamic_boost;
-	u32 nv_temp_target;
-	u32 nv_tgp;
-};
-
-struct asus_armoury_priv {
-	struct device *fw_attr_dev;
-	struct kset *fw_attr_kset;
-
-	struct cpu_cores *cpu_cores;
-	struct rog_tunables *rog_tunables;
-	u32 mini_led_dev_id;
-	u32 gpu_mux_dev_id;
-
-	struct mutex mutex;
-};
+static struct asus_wmi_armoury_interface wmi_armoury_interface;
 
 static struct asus_armoury_priv asus_armoury = {
 	.mutex = __MUTEX_INITIALIZER(asus_armoury.mutex)
@@ -744,6 +712,47 @@ static ssize_t cores_efficiency_current_value_store(struct kobject *kobj,
 ATTR_GROUP_CORES_RW(cores_efficiency, "cores_efficiency",
 		    "Set the max available efficiency cores");
 
+static ssize_t ppt_enabled_current_value_show(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				char *buf)
+{
+	bool enabled = false;
+
+	if (wmi_armoury_interface.wmi_driver)
+		enabled = asus_wmi_get_fan_curves_enabled(0);
+
+	return sysfs_emit(buf, "%d\n", enabled);
+}
+
+static ssize_t ppt_enabled_current_value_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct asus_wmi *asus = wmi_armoury_interface.wmi_driver;
+	bool value;
+	int err;
+
+	if (!asus) {
+		pr_debug("%s: wmi_driver is NULL\n", __func__);
+		return -ENODEV;
+	}
+
+	err = kstrtobool(buf, &value);
+	if (err)
+		return err;
+
+	/* Set enabled state */
+	err = asus_wmi_set_fan_curves_enabled(asus, value);
+	if (err)
+		return err;
+
+	notify_fan_curves_changed();
+	return count;
+}
+
+ATTR_GROUP_BOOL_CUSTOM(ppt_enabled, "ppt_enabled",
+		"Enable PPT tuning and custom fan curves");
+
 /* Simple attribute creation */
 ATTR_GROUP_ROG_TUNABLE(ppt_pl1_spl, "ppt_pl1_spl", ASUS_WMI_DEVID_PPT_PL1_SPL,
 		       "Set the CPU slow package limit");
@@ -803,6 +812,8 @@ static const struct asus_attr_group armoury_attr_groups[] = {
 	{ &mcu_powersave_attr_group, ASUS_WMI_DEVID_MCU_POWERSAVE },
 	{ &panel_od_attr_group, ASUS_WMI_DEVID_PANEL_OD },
 	{ &panel_hd_mode_attr_group, ASUS_WMI_DEVID_PANEL_HD },
+
+	{ &ppt_enabled_attr_group, ASUS_WMI_DEVID_CPU_FAN_CTRL },
 };
 
 static int asus_fw_attr_add(void)
@@ -877,7 +888,7 @@ static int asus_fw_attr_add(void)
 			    !strcmp(name, "ppt_pl3_fppt") || !strcmp(name, "ppt_apu_sppt") ||
 			    !strcmp(name, "ppt_platform_sppt") || !strcmp(name, "nv_dynamic_boost") ||
 			    !strcmp(name, "nv_temp_target") || !strcmp(name, "nv_base_tgp") ||
-			    !strcmp(name, "dgpu_tgp"))
+			    !strcmp(name, "dgpu_tgp") || !strcmp(name, "ppt_enabled"))
 		{
 			should_create = false;
 			if (asus_armoury.rog_tunables && asus_armoury.rog_tunables->tuning_limits &&
@@ -893,7 +904,9 @@ static int asus_fw_attr_add(void)
 				    (!strcmp(name, "nv_dynamic_boost") && limits->nv_dynamic_boost_max) ||
 				    (!strcmp(name, "nv_temp_target") && limits->nv_temp_target_max) ||
 				    (!strcmp(name, "nv_base_tgp") && limits->nv_tgp_max) ||
-				    (!strcmp(name, "dgpu_tgp") && limits->nv_tgp_max));
+				    (!strcmp(name, "dgpu_tgp") && limits->nv_tgp_max) ||
+				    (!strcmp(name, "ppt_enabled") &&
+					asus_armoury.rog_tunables->tuning_limits->requires_fan_curve));
 
 				/* Log error so users can report upstream */
 				if (!should_create)
@@ -1010,6 +1023,7 @@ static bool init_rog_tunables(struct rog_tunables *rog)
 static int __init asus_fw_init(void)
 {
 	char *wmi_uid;
+	bool tuning;
 	int err;
 
 	wmi_uid = wmi_get_acpi_device_uid(ASUS_WMI_MGMT_GUID);
@@ -1041,7 +1055,8 @@ static int __init asus_fw_init(void)
 	if (!asus_armoury.rog_tunables)
 		return -ENOMEM;
 	/* Init logs warn/error and the driver should still be usable if init fails */
-	if (!init_rog_tunables(asus_armoury.rog_tunables)) {
+	tuning = init_rog_tunables(asus_armoury.rog_tunables);
+	if (!tuning) {
 		kfree(asus_armoury.rog_tunables);
 		pr_err("Could not initialise PPT tunable control %d\n", err);
 	}
@@ -1050,6 +1065,14 @@ static int __init asus_fw_init(void)
 	err = asus_fw_attr_add();
 	if (err)
 		return err;
+
+	if (tuning) {
+		wmi_armoury_interface.armoury_fw_attr_dev = asus_armoury.fw_attr_dev;
+		wmi_armoury_interface.ppt_enabled_attr = &attr_ppt_enabled_current_value;
+		err = asus_wmi_register_armoury_interface(&wmi_armoury_interface);
+		if (err)
+			return err;
+	}
 
 	return 0;
 }
@@ -1061,6 +1084,8 @@ static void __exit asus_fw_exit(void)
 	sysfs_remove_file(&asus_armoury.fw_attr_kset->kobj, &pending_reboot.attr);
 	kset_unregister(asus_armoury.fw_attr_kset);
 	device_destroy(&firmware_attributes_class, MKDEV(0, 0));
+
+	asus_wmi_unregister_armoury_interface(&wmi_armoury_interface);
 
 	mutex_unlock(&asus_armoury.mutex);
 }

@@ -86,4 +86,37 @@ struct asus_wmi_driver {
 int asus_wmi_register_driver(struct asus_wmi_driver *driver);
 void asus_wmi_unregister_driver(struct asus_wmi_driver *driver);
 
+
+/* asus_armoury and asus_wmi need a copy each, with members filled on register */
+struct asus_wmi_armoury_interface {
+	/* Driver instances */
+	struct asus_wmi *wmi_driver;
+	/* Required so asus_wmi can notify the related attribute */
+	struct device *armoury_fw_attr_dev;
+
+	/* Attribute references for cross-notification */
+	struct device_attribute *fan_curves_enabled_attr; /* From asus_wmi */
+	struct kobj_attribute *ppt_enabled_attr;           /* From asus_armoury */
+};
+
+int asus_wmi_register_armoury_interface(struct asus_wmi_armoury_interface *armoury_interface);
+void asus_wmi_unregister_armoury_interface(struct asus_wmi_armoury_interface *armoury_interface);
+
+/* Helper to check if interface is ready */
+static inline bool interface_is_ready(struct asus_wmi_armoury_interface *wmi_armoury_interface)
+{
+	if (!wmi_armoury_interface->wmi_driver)
+		pr_debug("%s: wmi_driver is NULL\n", __func__);
+	if (!wmi_armoury_interface->armoury_fw_attr_dev)
+		pr_debug("%s: armoury_fw_attr_dev is NULL\n", __func__);
+	return wmi_armoury_interface->wmi_driver &&
+		wmi_armoury_interface->armoury_fw_attr_dev;
+}
+
+void notify_fan_curves_changed(void);
+
+bool asus_wmi_get_fan_curves_enabled(uint fan);
+
+int asus_wmi_set_fan_curves_enabled(struct asus_wmi *asus, bool enabled);
+
 #endif /* !_ASUS_WMI_H_ */
