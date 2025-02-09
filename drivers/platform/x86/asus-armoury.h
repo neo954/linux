@@ -49,6 +49,9 @@ struct asus_armoury_priv {
 	struct mutex mutex;
 };
 
+static ssize_t attr_uint_cache(struct kobject *kobj, struct kobj_attribute *attr, const char *buf,
+			      size_t count, u32 min, u32 max, u32 *store_value);
+
 static ssize_t attr_uint_store(struct kobject *kobj, struct kobj_attribute *attr,
 			      const char *buf, size_t count, u32 min, u32 max,
 			      u32 *store_value, u32 wmi_dev);
@@ -276,25 +279,35 @@ static ssize_t enum_type_show(struct kobject *kobj, struct kobj_attribute *attr,
 		const char *buf, size_t count)                               \
 	{                                                                    \
 		const struct power_limits *limits;                           \
+		int err;                                                     \
 		limits = power_supply_is_system_supplied() ?                 \
-			asus_armoury.rog_tunables->tuning_limits->ac_data : \
-			asus_armoury.rog_tunables->tuning_limits->dc_data;  \
+			asus_armoury.rog_tunables->tuning_limits->ac_data :  \
+			asus_armoury.rog_tunables->tuning_limits->dc_data;   \
 		if (!limits)                                                 \
 			return -ENODEV;                                      \
-		return attr_uint_store(kobj, attr, buf, count,              \
+		if (!asus_wmi_get_fan_curves_enabled(0)) {                   \
+			err = attr_uint_cache(kobj, attr, buf, count,        \
+					limits->_attr##_min,                 \
+					limits->_attr##_max,                 \
+					&asus_armoury.rog_tunables->_attr);  \
+			if (err)                                             \
+				return err;                                  \
+			return count;                                        \
+		}                                                            \
+		return attr_uint_store(kobj, attr, buf, count,               \
 				      limits->_attr##_min,                   \
 				      limits->_attr##_max,                   \
-				      &asus_armoury.rog_tunables->_attr,    \
-				      _wmi);                                \
+				      &asus_armoury.rog_tunables->_attr,     \
+				      _wmi);                                 \
 	}                                                                    \
-	static ssize_t _attr##_current_value_show(                          \
+	static ssize_t _attr##_current_value_show(                           \
 		struct kobject *kobj, struct kobj_attribute *attr,           \
 		char *buf)                                                   \
 	{                                                                    \
-		return sysfs_emit(buf, "%u\n",                              \
-				  asus_armoury.rog_tunables->_attr);        \
+		return sysfs_emit(buf, "%u\n",                               \
+				  asus_armoury.rog_tunables->_attr);         \
 	}                                                                    \
-	static struct kobj_attribute attr_##_attr##_current_value =         \
+	static struct kobj_attribute attr_##_attr##_current_value =          \
 		__ASUS_ATTR_RW(_attr, current_value)
 
 #define ATTR_GROUP_ROG_TUNABLE(_attrname, _fsname, _wmi, _dispname) \

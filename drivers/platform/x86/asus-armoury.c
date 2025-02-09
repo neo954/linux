@@ -78,6 +78,7 @@ struct asus_attr_group {
 	const struct attribute_group *attr_group;
 	u32 wmi_devid;
 };
+static const struct asus_attr_group armoury_attr_groups[];
 
 static bool asus_wmi_is_present(u32 dev_id)
 {
@@ -177,6 +178,26 @@ static ssize_t attr_uint_store(struct kobject *kobj, struct kobj_attribute *attr
 
 	if (asus_bios_requires_reboot(attr))
 		asus_set_reboot_and_signal_event();
+
+	return count;
+}
+
+ssize_t attr_uint_cache(struct kobject *kobj, struct kobj_attribute *attr, const char *buf,
+			      size_t count, u32 min, u32 max, u32 *store_value)
+{
+	u32 value;
+	int err;
+
+	err = kstrtouint(buf, 10, &value);
+	if (err)
+		return err;
+
+	if (value < min || value > max)
+		return -EINVAL;
+
+	if (store_value != NULL)
+		*store_value = value;
+	sysfs_notify(kobj, NULL, attr->attr.name);
 
 	return count;
 }
@@ -729,8 +750,10 @@ static ssize_t ppt_enabled_current_value_store(struct kobject *kobj,
 				const char *buf, size_t count)
 {
 	struct asus_wmi *asus = wmi_armoury_interface.wmi_driver;
+	const char *name;
+	u32 wmi_dev, set;
 	bool value;
-	int err;
+	int err, i;
 
 	if (!asus) {
 		pr_debug("%s: wmi_driver is NULL\n", __func__);
@@ -745,6 +768,36 @@ static ssize_t ppt_enabled_current_value_store(struct kobject *kobj,
 	err = asus_wmi_set_fan_curves_enabled(asus, value);
 	if (err)
 		return err;
+
+	for (i = 0; i < 21; i++) {
+		name = armoury_attr_groups[i].attr_group->name;
+		wmi_dev = armoury_attr_groups[i].wmi_devid;
+
+		if (!asus_wmi_is_present(wmi_dev))
+			continue;
+
+		if (!strcmp(name, "ppt_pl1_spl"))
+			set = asus_armoury.rog_tunables->ppt_pl1_spl;
+		if (!strcmp(name, "ppt_pl2_sppt"))
+			set = asus_armoury.rog_tunables->ppt_pl2_sppt;
+		if (!strcmp(name, "ppt_pl3_fppt"))
+			set = asus_armoury.rog_tunables->ppt_pl3_fppt;
+		if (!strcmp(name, "ppt_apu_sppt"))
+			set = asus_armoury.rog_tunables->ppt_apu_sppt;
+		if (!strcmp(name, "ppt_apu_sppt"))
+			set = asus_armoury.rog_tunables->ppt_apu_sppt;
+		if (!strcmp(name, "nv_dynamic_boost"))
+			set = asus_armoury.rog_tunables->nv_dynamic_boost;
+		if (!strcmp(name, "nv_temp_target"))
+			set = asus_armoury.rog_tunables->nv_temp_target;
+		// if (!strcmp(name, "nv_base_tgp"))
+		// 	set = asus_armoury.rog_tunables->nv_base_tgp;
+		// if (!strcmp(name, "dgpu_tgp"))
+		// 	set = asus_armoury.rog_tunables->dgpu_tgp;
+		err = armoury_wmi_set_devstate(attr, value, wmi_dev);
+		if (err)
+			return err;
+	}
 
 	notify_fan_curves_changed();
 	return count;
