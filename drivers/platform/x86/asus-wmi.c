@@ -339,6 +339,16 @@ struct asus_wmi {
 
 static bool ally_mcu_usb_plug;
 
+/*
+ * The HID driver needs to check MCU version and set this to false if the MCU FW
+ * version is >= the minimum requirements. New FW do not need the hacks.
+ */
+void set_ally_mcu_hack_available(bool enabled)
+{
+	ally_mcu_usb_plug = enabled;
+}
+EXPORT_SYMBOL_NS_GPL(set_ally_mcu_hack_available, "ASUS_WMI");
+
 /* WMI ************************************************************************/
 
 static int asus_wmi_evaluate_method3(u32 method_id,
@@ -4735,7 +4745,7 @@ static int asus_wmi_add(struct platform_device *pdev)
 
 	ally_mcu_usb_plug = acpi_has_method(NULL, ASUS_USB0_PWR_EC0_CSEE)
 				&& dmi_check_system(asus_rog_ally_device);
-	if (ally_mcu_usb_plug) {
+	if (ally_mcu_usb_plug && dmi_match(DMI_BOARD_NAME, "RC71")) {
 		/*
 		 * These steps ensure the device is in a valid good state, this is
 		 * especially important for the Ally 1 after a reboot.
