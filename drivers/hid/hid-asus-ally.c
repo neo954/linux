@@ -380,6 +380,7 @@ static struct ally_drvdata {
 	struct ally_gamepad_cfg *gamepad_cfg;
 	struct ally_rgb_dev *led_rgb_dev;
 	struct ally_rgb_data led_rgb_data;
+	uint mcu_version;
 } drvdata;
 
 /**
@@ -1184,6 +1185,13 @@ static ssize_t gamepad_mode_store(struct device *dev, struct device_attribute *a
 
 DEVICE_ATTR_RW(gamepad_mode);
 
+static ssize_t mcu_version_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", drvdata.mcu_version);
+}
+
+DEVICE_ATTR_RO(mcu_version);
+
 /* ROOT LEVEL ATTRS *******************************************************************************/
 static struct attribute *gamepad_device_attrs[] = {
 	&dev_attr_btn_mapping_reset.attr,
@@ -1191,6 +1199,7 @@ static struct attribute *gamepad_device_attrs[] = {
 	&dev_attr_gamepad_apply_all.attr,
 	&dev_attr_gamepad_vibration_intensity.attr,
 	&dev_attr_gamepad_vibration_intensity_index.attr,
+	&dev_attr_mcu_version.attr,
 	NULL
 };
 
@@ -1929,14 +1938,13 @@ out:
 	return ret;
 }
 
-static void mcu_maybe_warn_version(struct hid_device *hdev, int idProduct)
+static void validate_mcu_fw_version(struct hid_device *hdev, int idProduct)
 {
 	int min_version, version;
-	struct asus_wmi *asus;
-	struct device *dev;
 
 	min_version = ROG_ALLY_X_MIN_MCU;
 	version = mcu_request_version(hdev);
+	drvdata.mcu_version = version;
 	if (version) {
 		switch (idProduct) {
 		case USB_DEVICE_ID_ASUSTEK_ROG_NKEY_ALLY:
@@ -1950,11 +1958,12 @@ static void mcu_maybe_warn_version(struct hid_device *hdev, int idProduct)
 
 	hid_info(hdev, "Ally device MCU version: %d\n", version);
 	if (version < min_version) {
-		set_ally_mcu_hack_available(false);
 		hid_warn(hdev,
 			 "The MCU version must be %d or greater\n"
 			 "Please update your MCU with official ASUS firmware release\n",
 			 min_version);
+	} else {
+		set_ally_mcu_hack_available(false);
 	}
 }
 
@@ -2146,6 +2155,7 @@ static void __exit rog_ally_exit(void)
 module_init(rog_ally_init);
 module_exit(rog_ally_exit);
 
+MODULE_IMPORT_NS("ASUS_WMI");
 MODULE_AUTHOR("Luke D. Jones");
 MODULE_DESCRIPTION("HID Driver for ASUS ROG Ally gamepad configuration.");
 MODULE_LICENSE("GPL");
