@@ -15,6 +15,8 @@
 #include <linux/irq.h>
 #include <linux/mutex.h>
 #include <linux/pinctrl/pinctrl.h>
+#include <linux/printk.h>
+#include <linux/uuid.h>
 
 #include <linux/gpio/consumer.h>
 #include <linux/gpio/driver.h>
@@ -22,6 +24,14 @@
 
 #include "gpiolib.h"
 #include "gpiolib-acpi.h"
+
+/*
+ * Defined by Microsoft at https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/
+ * gpio-controller-device-specific-method---dsm-.
+ */
+static const guid_t acpi_gpio_microsoft_guid = GUID_INIT(0x4F248F40, 0xD5E2, 0x499F, 0x83, 0x4C,
+							 0x27, 0x75, 0x8E, 0xA1, 0xCD, 0x3F);
+#define ACPI_GPIO_DSM_ACTIVE_BOTH_POLARITY 1
 
 /**
  * struct acpi_gpio_event - ACPI GPIO event handler data
@@ -216,9 +226,11 @@ bool acpi_gpio_get_io_resource(struct acpi_resource *ares,
 EXPORT_SYMBOL_GPL(acpi_gpio_get_io_resource);
 
 static void acpi_gpiochip_request_irq(struct acpi_gpio_chip *acpi_gpio,
-				      struct acpi_gpio_event *event)
+				      struct acpi_gpio_event *event,
+				      union acpi_object *obj)
 {
 	struct device *parent = acpi_gpio->chip->parent;
+	bool active_low = true;
 	int ret, value;
 
 	ret = request_threaded_irq(event->irq, NULL, event->handler,
@@ -248,18 +260,67 @@ static void acpi_gpiochip_request_irq(struct acpi_gpio_chip *acpi_gpio,
 	if (acpi_gpio_need_run_edge_events_on_boot() &&
 	    ((event->irqflags & (IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING)) ==
 	     (IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING))) {
+		if (obj) {
+			for (u32 i = 0; i < obj->package.count; i++) {
+				if (obj->package.elements[i].integer.value == event->pin) {
+					active_low = false;
+					break;
+				}
+			}
+		}
+
 		value = gpiod_get_raw_value_cansleep(event->desc);
-		if (value == 0)
+		if ((active_low && value == 0) || (!active_low && value == 1))
 			event->handler(event->irq, event);
 	}
+}
+
+static union acpi_object *acpi_gpiochip_evaluate_dsm(struct acpi_gpio_chip *acpi_gpio)
+{
+	struct device *parent = acpi_gpio->chip->parent;
+	union acpi_object dummy = {
+		.package = {
+			.type = ACPI_TYPE_PACKAGE,
+			.count = 0,
+			.elements = NULL,
+		},
+	};
+	acpi_handle handle = ACPI_HANDLE(parent);
+	union acpi_object *obj;
+
+	if (!acpi_check_dsm(handle, &acpi_gpio_microsoft_guid, 0,
+			    BIT(ACPI_GPIO_DSM_ACTIVE_BOTH_POLARITY)))
+		return NULL;
+
+	obj = acpi_evaluate_dsm_typed(handle, &acpi_gpio_microsoft_guid, 0,
+				      ACPI_GPIO_DSM_ACTIVE_BOTH_POLARITY,
+				      &dummy, ACPI_TYPE_PACKAGE);
+	if (obj) {
+		for (u32 i = 0; i < obj->package.count; i++) {
+			if (obj->package.elements[i].type == ACPI_TYPE_INTEGER)
+				continue;
+
+			dev_err(parent, FW_BUG "Ignoring GPIO _DSM due to invalid data\n");
+			ACPI_FREE(obj);
+			return NULL;
+		}
+	}
+
+	return obj;
 }
 
 static void acpi_gpiochip_request_irqs(struct acpi_gpio_chip *acpi_gpio)
 {
 	struct acpi_gpio_event *event;
+	union acpi_object *obj;
+
+	obj = acpi_gpiochip_evaluate_dsm(acpi_gpio);
 
 	list_for_each_entry(event, &acpi_gpio->events, node)
-		acpi_gpiochip_request_irq(acpi_gpio, event);
+		acpi_gpiochip_request_irq(acpi_gpio, event, obj);
+
+	if (obj)
+		ACPI_FREE(obj);
 }
 
 static enum gpiod_flags
